@@ -11,7 +11,11 @@ double scanDist = 4.0;
 /* Number of points desired. From the Physics requrements document : < Insert revision > */
 double desPoints = 100;
 
+/* Size of the velocity profile after realloc*/
 int sizeVel = 1;
+
+/* Array to hold profile chsange points */
+int dummy[7]= {0};
 
 /* Scan Range per wire in mm. Order of the wires: u, x, y */
 double wireRange[3][2] = { 
@@ -20,6 +24,7 @@ double wireRange[3][2] = {
                            {38.32, 42.32} /*Y wire INNER and OUTER*/ 
                          }; 
 
+/*Selects the maximum speed according to the repRate*/
 double getSpeed (double repRate) {
   
   double desSpeed = repRate * scanDist / desPoints;
@@ -27,6 +32,47 @@ double getSpeed (double repRate) {
   return min  ;
 }   
 
+/* Running Average*/
+double * convolve(double* pSignal, size_t SignalLen,size_t KernelLen) {
+  
+  int window = 5;
+
+  size_t n;
+  double *pResult;
+  pResult= (double *)malloc((size_t)((SignalLen + KernelLen -1)*sizeof(double)));
+  FILE * fp;
+
+  double kernel[KernelLen];
+   for (n = 0; n< KernelLen; n++){
+       kernel[n] = 0.4;
+   }
+
+  for (n = 0; n < SignalLen + KernelLen - 1; n++) {
+    size_t kmin, kmax, k;
+
+    *(pResult+n) = 0;
+
+    kmin = (n >= KernelLen - 1) ? n - (KernelLen - 1) : 0;
+    kmax = (n < SignalLen - 1) ? n : SignalLen - 1;
+
+    for (k = kmin; k <= kmax; k++) {
+      *(pResult+n) += *(pSignal+k) * kernel[n - k];
+    }
+    fp= fopen("/u/cd/namrata/workspace/git-repos/wirescan_curves/scanDataResult.csv","a");
+    fprintf(fp,"%0.3f\n",*(pResult+n));
+    fclose(fp);
+   //printf("Smoothed curve a= %f\n", *(pResult+n));
+  }
+
+  return pResult;
+}
+
+
+
+
+
+
+/* Builds the velocity profile */
 double * build_velocity_profile( double speed, double maxSpeed, double dt) {
    
    // Profile points defining the shape of the scan
@@ -38,68 +84,48 @@ double * build_velocity_profile( double speed, double maxSpeed, double dt) {
    scanPoints[1]=scanPoints[3]=scanPoints[5]= scanDist;
    scanPoints[6]=wireRange[2][1];
   
-   printf("This is the distance per speed according to the profile to be generated: \n");
    int i;
-   
-   for (i=0;i < 7 ;i++) {
-       printf("%f\n",scanPoints[i]);
-   }
-   
+
    // Profile speed defining the permissible speed along the scan points
    double speeds[7] = {0};
    
    speeds[0]=speeds[2]=speeds[4]=speeds[6]=maxSpeed;
-   speeds[1]=speeds[3]=speeds[5]=speed;
-   
-   printf("This is the profile speed : \n");
-   for (i=0;i < 7 ;i++) {
-       printf("%f\n",speeds[i]);
-   }
+   speeds[1]=speeds[3]=speeds[5]=speed;   
  
    double *pNewVelocity; 
-   double *temp;
+   double *pVelProfile;
    pNewVelocity= (double *)malloc((size_t)((1)*sizeof(double)));  
  
    FILE * fp;
-   int a = 0;
-   int b = 6;
    
-   printf("This is the profile velocity : \n");
    int bit; 
-  
-   int dummy[7]= {0};
    
    sizeVel = 0;
  
    for (i=0;i < 7 ;i++) {
        double dt0 = (scanPoints[i] / speeds[i]);
-       printf(" scanPoints = %0.3f speed = %0.3f dt0 = %0.3f\n ",scanPoints[i],speeds[i],dt0);
        double m = dt0/dt;
-       printf(" dt = %0.3f m = %0.3f round m = %0.3f\n ",dt,m,round(m));
        sizeVel = sizeVel + (int)m;
-       printf("sizeVel = %d\n",sizeVel);
-
        dummy[i] = sizeVel;
-       printf("dummy = %d\n",dummy[i]);
    }
   
-  temp = (double *)realloc(pNewVelocity, sizeVel*sizeof(double));
+  pVelProfile = (double *)realloc(pNewVelocity, sizeVel*sizeof(double));
   
   i = 0;
   for (bit =0;bit < sizeVel;bit++) {
     if(bit == dummy[i])
        i++;
          
-    *(temp+bit) = speeds[i];
+    *(pVelProfile+bit) = speeds[i];
     if(i == 6)
-    *(temp+bit) = -speeds[i]; 
+    *(pVelProfile+bit) = -speeds[i]; 
   
     fp= fopen("/u/cd/namrata/workspace/git-repos/wirescan_curves/scanData.csv","a");
-    fprintf(fp,"%0.3f\n",*(temp+bit));
+    fprintf(fp,"%0.3f\n",*(pVelProfile+bit));
     fclose(fp);
     }
   
-   return temp;
+   return pVelProfile;
 }
 
 
@@ -121,7 +147,9 @@ void build_position_profile (double dt, double* velProfile, int smoothing){
          fp= fopen("/u/cd/namrata/workspace/git-repos/wirescan_curves/scanDataPos.csv","a");
          fprintf(fp,"%0.3f\n",*(pNewPosition+i));
          fclose(fp);
-}
+   }
+
+   PResult = convolve(pNewPosition,sizeVel,smoothing);
 }
 
 
@@ -137,14 +165,12 @@ main() {
   
   double repRate = 100;
   
-  double *PvelProf;
+  double *pvelProfile;
   speed = getSpeed(repRate);
-
-  printf("Minimum speed = %f \n ", speed);
   
-  PvelProf = build_velocity_profile(speed, maxSpeed, dt);
+  pvelProfile = build_velocity_profile(speed, maxSpeed, dt);
 
-  build_position_profile(dt, PvelProf, smoothing);  
-  free(PvelProf);
+  build_position_profile(dt, pvelProfile, smoothing);  
+  free(pvelProfile);
 }
 
