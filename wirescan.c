@@ -4,6 +4,9 @@
 
 #define MIN( a, b ) ( ( a < b) ? a : b ) 
 
+/* Arb length*/
+int smoothLen = 7;
+
 /* Max speed at which the stage can move mm/sec? */
 double maxSpeed = 100;
 /* Distance scanner over the wire in mm*/
@@ -32,45 +35,84 @@ double getSpeed (double repRate) {
   return min  ;
 }   
 
-/* Running Average*/
-double * convolve(double* pSignal, size_t SignalLen,size_t KernelLen) {
-  
-  int window = 5;
+
+
+void convolve(const double Signal[/* SignalLen */], size_t SignalLen,
+              double SmoothResult[/*SignalLen*/])
+{
+  double Kernel[] = { 0.249, 0.249, 0.249, 0.249};
+  size_t KernelLen = 4;
+
+  double Result[SignalLen + KernelLen - 1];
+
 
   size_t n;
-  double *pResult;
-  pResult= (double *)malloc((size_t)((SignalLen + KernelLen -1)*sizeof(double)));
-  FILE * fp;
 
-  double kernel[KernelLen];
-   for (n = 0; n< KernelLen; n++){
-       kernel[n] = 0.4;
-   }
-
-  for (n = 0; n < SignalLen + KernelLen - 1; n++) {
+  for (n = 0; n < SignalLen + KernelLen - 1; n++)
+  {
     size_t kmin, kmax, k;
 
-    *(pResult+n) = 0;
+    Result[n] = 0;
 
     kmin = (n >= KernelLen - 1) ? n - (KernelLen - 1) : 0;
     kmax = (n < SignalLen - 1) ? n : SignalLen - 1;
 
-    for (k = kmin; k <= kmax; k++) {
-      *(pResult+n) += *(pSignal+k) * kernel[n - k];
+    for (k = kmin; k <= kmax; k++)
+    {
+      Result[n] += Signal[k] * Kernel[n - k];
     }
-    fp= fopen("/u/cd/namrata/workspace/git-repos/wirescan_curves/scanDataResult.csv","a");
-    fprintf(fp,"%0.3f\n",*(pResult+n));
-    fclose(fp);
-   //printf("Smoothed curve a= %f\n", *(pResult+n));
   }
 
-  return pResult;
+  size_t j;
+
+  j = SignalLen - KernelLen - 1;
+  for (n = 0; n < SignalLen; n++)
+  {
+    SmoothResult[n] = Signal [n];
+    if ((n == j) && (j != (SignalLen-1)))
+    {
+       SmoothResult[n] = Result[j+1];
+       j++;
+    }
+   }
 }
 
 
+/* Running Average*/
+//double * movingAverage(double* pSignal, size_t SignalLen,size_t KernelLen) {
+void movingAverage(double* pSignal, size_t SignalLen,size_t KernelLen) {
+  
+ double *pResult;
+ pResult= (double *)malloc((size_t)((SignalLen)*sizeof(double)));
+ 
+ pResult = pSignal;
+ FILE * fp;
+ 
+ double smoothResult[smoothLen]; 
+ double signalSnip[smoothLen];
+ int i;
+ int j;
+ for (j = 0; j < (smoothLen-1); j ++){
+    for (i = 0; i < smoothLen; i ++){
+       signalSnip[i] = *(pSignal+dummy[j]-KernelLen+i);
+       printf("Snip = %f\n",signalSnip[i]);
+    }
+    
+    convolve(signalSnip,smoothLen,smoothResult);
+    for (i = 0; i < smoothLen; i ++){
+       *(pResult+dummy[j]-KernelLen+i) = smoothResult[i];
+       printf("Smooth = %f\n",smoothResult[i]);
+    }
+ }
 
+ for (i =0; i<SignalLen ; i++){
+    fp= fopen("/u/cd/namrata/workspace/git-repos/wirescan_curves/scanDataResult.csv","a");
+    fprintf(fp,"%0.3f\n",*(pResult+i));
+    fclose(fp);
+ }
 
-
+ // return pResult;
+}
 
 /* Builds the velocity profile */
 double * build_velocity_profile( double speed, double maxSpeed, double dt) {
@@ -107,7 +149,8 @@ double * build_velocity_profile( double speed, double maxSpeed, double dt) {
        double m = dt0/dt;
        sizeVel = sizeVel + (int)m;
        dummy[i] = sizeVel;
-   }
+       printf("Dummy %d = %d\n",i,dummy[i]);
+  }
   
   pVelProfile = (double *)realloc(pNewVelocity, sizeVel*sizeof(double));
   
@@ -139,7 +182,7 @@ void build_position_profile (double dt, double* velProfile, int smoothing){
 
    pNewPosition= (double *)malloc((size_t)((sizeVel)*sizeof(double)));
 
-   double *PResult;
+  // double *PResult;
 
    for (i =0; i<sizeVel ; i++){
       *(pNewPosition+i) = count + *(velProfile+i) * dt;
@@ -149,7 +192,8 @@ void build_position_profile (double dt, double* velProfile, int smoothing){
          fclose(fp);
    }
 
-   PResult = convolve(pNewPosition,sizeVel,smoothing);
+  // PResult = movingAverage(pNewPosition,sizeVel,smoothing);
+  movingAverage(pNewPosition,sizeVel,smoothing);
 }
 
 
@@ -161,7 +205,7 @@ main() {
   double speed;
 
   double dt = 0.01;
-  int smoothing = 3;
+  int smoothing = 4;
   
   double repRate = 100;
   
